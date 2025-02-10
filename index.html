@@ -1,70 +1,304 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>PNG/Plist Splitter</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    input { margin: 5px 0; }
-  </style>
-</head>
-<body>
-  <h1>PNG/Plist Splitter</h1>
-  <p>
-    Upload a ZIP file containing both a PNG and its corresponding plist (or XML) file,
-    or upload them separately.
-  </p>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Sprite Extractor</title>
+    <!-- Include required libraries from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.0/jszip.min.js"></script>
+    <script src="https://unpkg.com/plist@3.0.1/dist/plist.min.js"></script>
+    <style>
+      body {
+        font-family: sans-serif;
+        line-height: 1.5;
+        padding: 20px;
+      }
+      input {
+        margin: 5px 0;
+      }
+      #downloadLink {
+        margin-top: 20px;
+        display: inline-block;
+        padding: 8px 16px;
+        background: #4caf50;
+        color: #fff;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Sprite Extractor</h1>
+    <p>
+      Select a ZIP file containing a sprite atlas (PNG + plist/XML file) or upload the
+      PNG and plist files separately:
+    </p>
+    <div>
+      <label for="zipFileInput">ZIP File:</label>
+      <input type="file" id="zipFileInput" accept=".zip" />
+    </div>
+    <p><strong>OR</strong></p>
+    <div>
+      <label for="pngFileInput">PNG File:</label>
+      <input type="file" id="pngFileInput" accept=".png" />
+    </div>
+    <div>
+      <label for="plistFileInput">Plist/XML File:</label>
+      <input type="file" id="plistFileInput" accept=".plist,.xml" />
+    </div>
+    <button id="processButton">Process Files</button>
+    <br />
+    <a id="downloadLink" style="display:none;">Download Extracted Sprites ZIP</a>
 
-  <form id="split-form" enctype="multipart/form-data" method="POST" action="/split">
-    <h2>Upload ZIP File</h2>
-    <input type="file" name="zipFile" accept=".zip">
-    <br><br>
-    <h2>Or Upload PNG and Plist Files Separately</h2>
-    <input type="file" name="pngFile" accept="image/png">
-    <br>
-    <input type="file" name="plistFile" accept=".plist, .xml">
-    <br><br>
-    <button type="submit">Split</button>
-  </form>
-
-  <div id="result"></div>
-
-  <script>
-    document.getElementById('split-form').addEventListener('submit', function(event) {
-      event.preventDefault();
-
-      const form = document.getElementById('split-form');
-      const formData = new FormData(form);
-      const resultDiv = document.getElementById('result');
-      resultDiv.innerHTML = 'Processing...';
-
-      fetch('/split', {
-        method: 'POST',
-        body: formData
-      })
-      .then(response => {
-        if (response.ok && response.headers.get('Content-Type') === 'application/zip') {
-          return response.blob();
-        } else {
-          return response.text().then(text => { throw new Error(text); });
+    <script>
+      // Main processing function on button click
+      document.getElementById("processButton").addEventListener("click", async () => {
+        try {
+          let pngBlob, plistContent;
+          
+          const zipInput = document.getElementById("zipFileInput");
+  
+          // If a ZIP file is provided, use JSZip to load the files.
+          if (zipInput.files.length > 0) {
+            const zipFile = zipInput.files[0];
+            const zip = await JSZip.loadAsync(zipFile);
+  
+            // Build arrays of PNG and plist/XML filenames from the zip archive.
+            const pngFiles = [];
+            const plistFiles = [];
+            Object.keys(zip.files).forEach((filename) => {
+              if (!zip.files[filename].dir) {
+                if (filename.toLowerCase().endsWith(".png")) {
+                  pngFiles.push(filename);
+                } else if (
+                  filename.toLowerCase().endsWith(".plist") ||
+                  filename.toLowerCase().endsWith(".xml")
+                ) {
+                  plistFiles.push(filename);
+                }
+              }
+            });
+  
+            if (pngFiles.length === 0 || plistFiles.length === 0) {
+              alert("The ZIP file must contain at least one PNG and one plist/XML file.");
+              return;
+            }
+  
+            // Attempt to match a PNG and plist file by base name.
+            let matchedPng, matchedPlist;
+            function getBaseName(filename) {
+              const parts = filename.split("/");
+              const base = parts[parts.length - 1];
+              return base.substring(0, base.lastIndexOf("."));
+            }
+  
+            let found = false;
+            for (let p of pngFiles) {
+              const pngBase = getBaseName(p);
+              for (let q of plistFiles) {
+                const plistBase = getBaseName(q);
+                if (pngBase === plistBase) {
+                  matchedPng = p;
+                  matchedPlist = q;
+                  found = true;
+                  break;
+                }
+              }
+              if (found) break;
+            }
+  
+            if (!found) {
+              alert("No matching PNG and plist files found in the ZIP. They must have the same base name.");
+              return;
+            }
+  
+            // Load matched files from the zip archive.
+            pngBlob = await zip.file(matchedPng).async("blob");
+            plistContent = await zip.file(matchedPlist).async("string");
+  
+          } else {
+            // Otherwise, assume files are provided separately.
+            const pngFileInput = document.getElementById("pngFileInput");
+            const plistFileInput = document.getElementById("plistFileInput");
+            if (pngFileInput.files.length === 0 || plistFileInput.files.length === 0) {
+              alert("Both PNG and plist files are required.");
+              return;
+            }
+  
+            const pngFile = pngFileInput.files[0];
+            const plistFile = plistFileInput.files[0];
+  
+            const pngBase = pngFile.name.substring(0, pngFile.name.lastIndexOf("."));
+            const plistBase = plistFile.name.substring(0, plistFile.name.lastIndexOf("."));
+            if (pngBase !== plistBase) {
+              alert("The PNG and plist files must have the same base name.");
+              return;
+            }
+  
+            pngBlob = pngFile;
+            plistContent = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = (e) => resolve(e.target.result);
+              reader.onerror = (e) => reject(e);
+              reader.readAsText(plistFile);
+            });
+          }
+  
+          // Parse the plist file using the plist library.
+          let plistJson;
+          try {
+            plistJson = plist.parse(plistContent);
+          } catch (e) {
+            alert("Error parsing plist: " + e.message);
+            return;
+          }
+  
+          if (!plistJson.frames) {
+            alert("No frames found in the plist file.");
+            return;
+          }
+  
+          // Load the sprite sheet image
+          const imageUrl = URL.createObjectURL(pngBlob);
+          const image = await loadImage(imageUrl);
+  
+          // Create an output ZIP archive using JSZip.
+          const outputZip = new JSZip();
+          const frames = plistJson.frames;
+          const frameNames = Object.keys(frames);
+  
+          // Process each frame from the plist.
+          for (let frameName of frameNames) {
+            const frame = frames[frameName];
+            const frameInfo = parseFrameData(frame);
+            if (!frameInfo) {
+              console.warn("Skipping frame " + frameName + " due to invalid data.");
+              continue;
+            }
+  
+            // Extract the sprite region using an HTML Canvas.
+            const spriteBlob = await extractSprite(image, frameInfo);
+  
+            // Add the resulting image blob to the zip archive.
+            outputZip.file(frameName + ".png", spriteBlob);
+          }
+  
+          // Generate a ZIP blob and create a download link.
+          const zipContent = await outputZip.generateAsync({ type: "blob" });
+          const downloadLink = document.getElementById("downloadLink");
+          downloadLink.href = URL.createObjectURL(zipContent);
+          downloadLink.download = "extracted_sprites.zip";
+          downloadLink.style.display = "inline-block";
+          downloadLink.textContent = "Download Extracted Sprites ZIP";
+  
+        } catch (error) {
+          console.error("Error processing files:", error);
+          alert("Error processing files: " + error.message);
         }
-      })
-      .then(blob => {
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'extracted_sprites.zip';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
-        resultDiv.innerHTML = 'Download started.';
-      })
-      .catch(error => {
-        resultDiv.innerHTML = 'Error: ' + error.message;
-        console.error('Error:', error);
       });
-    });
-  </script>
-</body>
+  
+      // Helper: Load an image from a URL.
+      function loadImage(url) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = url;
+        });
+      }
+  
+      // Helper: Parse frame data from the plist structure.
+      function parseFrameData(frame) {
+        try {
+          let frameRect = frame.frame;
+          let rotated = frame.rotated || false;
+          let sourceSize = frame.sourceSize || { width: frame.width, height: frame.height };
+          let offset = frame.offset || { x: 0, y: 0 };
+  
+          if (typeof frameRect === "string") {
+            // Remove any braces and split the comma-separated values.
+            frameRect = frameRect.replace(/[{}]/g, "");
+            const parts = frameRect.split(",").map(s => parseInt(s.trim(), 10));
+            const x = parts[0];
+            const y = parts[1];
+            const width = parts[2];
+            const height = parts[3];
+            if (typeof offset === "string") {
+              offset = offset.replace(/[{}]/g, "").split(",").map(s => parseInt(s.trim(), 10));
+              offset = { x: offset[0], y: offset[1] };
+            }
+            return { x, y, width, height, rotated, offset, sourceSize };
+          } else if (typeof frameRect === "object") {
+            const { x, y, w, h } = frameRect;
+            return { x, y, width: w, height: h, rotated, offset, sourceSize };
+          } else {
+            return null;
+          }
+        } catch (e) {
+          console.error("Error parsing frame data:", e.message);
+          return null;
+        }
+      }
+  
+      // Helper: Extract the sprite using a Canvas.
+      // For non-rotated frames, simply extract the rectangle.
+      // For rotated frames: extract with swapped dimensions then rotate -90°.
+      function extractSprite(image, frameInfo) {
+        return new Promise((resolve, reject) => {
+          try {
+            if (!frameInfo.rotated) {
+              const canvas = document.createElement("canvas");
+              canvas.width = frameInfo.width;
+              canvas.height = frameInfo.height;
+              const ctx = canvas.getContext("2d");
+              ctx.drawImage(
+                image,
+                frameInfo.x,
+                frameInfo.y,
+                frameInfo.width,
+                frameInfo.height,
+                0,
+                0,
+                frameInfo.width,
+                frameInfo.height
+              );
+              canvas.toBlob(blob => {
+                resolve(blob);
+              }, "image/png");
+            } else {
+              // For rotated frames: dimensions are swapped.
+              const tempCanvas = document.createElement("canvas");
+              tempCanvas.width = frameInfo.height;
+              tempCanvas.height = frameInfo.width;
+              const tempCtx = tempCanvas.getContext("2d");
+              tempCtx.drawImage(
+                image,
+                frameInfo.x,
+                frameInfo.y,
+                frameInfo.height,  // width becomes height
+                frameInfo.width,   // height becomes width
+                0,
+                0,
+                frameInfo.height,
+                frameInfo.width
+              );
+  
+              // Rotate the temporary canvas by -90°.
+              const canvas = document.createElement("canvas");
+              canvas.width = frameInfo.width;
+              canvas.height = frameInfo.height;
+              const ctx = canvas.getContext("2d");
+              ctx.translate(0, canvas.height);
+              ctx.rotate(-Math.PI / 2);
+              ctx.drawImage(tempCanvas, 0, 0);
+              canvas.toBlob(blob => {
+                resolve(blob);
+              }, "image/png");
+            }
+          } catch (e) {
+            reject(e);
+          }
+        });
+      }
+    </script>
+  </body>
 </html>
+
